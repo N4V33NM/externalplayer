@@ -1,0 +1,41 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'zulu'
+
+    - name: Ensure Gradle wrapper directory exists
+      run: |
+        mkdir -p gradle/wrapper
+        echo "distributionUrl=https\://services.gradle.org/distributions/gradle-7.5.1-all.zip" > gradle/wrapper/gradle-wrapper.properties
+
+    - name: Set executable permissions for gradlew
+      run: chmod +x ./gradlew
+      working-directory: AndroidKeylogger
+
+    - name: Update Gradle Wrapper
+      run: ./gradlew wrapper --gradle-version 7.5.1
+      working-directory: AndroidKeylogger
+
+    - name: Build APK
+      run: ./gradlew assembleDebug
+      working-directory: AndroidKeylogger
+
+    - name: Upload APK as Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: user-apk
+        path: AndroidKeylogger/app/build/outputs/apk/debug/app-debug.apk
